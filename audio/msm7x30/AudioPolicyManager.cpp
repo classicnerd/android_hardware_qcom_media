@@ -451,6 +451,7 @@ void AudioPolicyManager::setPhoneState(int state)
         newDevice = getDeviceForStrategy(STRATEGY_MEDIA, false);
     }
 #endif
+
 #ifdef WITH_A2DP
     AudioPolicyManagerBase::checkOutputForAllStrategies();
     AudioPolicyManagerBase::checkA2dpSuspend();
@@ -800,6 +801,7 @@ void AudioPolicyManager::setOutputDevice(audio_io_handle_t output, uint32_t devi
         AudioPolicyManagerBase::applyStreamVolumes(mLPADecodeOutput, device, delayMs);
     }
 #endif
+
 #ifdef WITH_A2DP
     // if disconnecting SCO device, restore A2DP output
     if ((AudioSystem::isBluetoothScoDevice((AudioSystem::audio_devices)prevDevice) &&

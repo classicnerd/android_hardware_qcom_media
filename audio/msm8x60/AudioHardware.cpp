@@ -2752,7 +2752,10 @@ status_t AudioHardware::AudioStreamInMSM72xx::set(
         }
 
         LOGV("set config");
-        config.channel_count = AudioSystem::popCount(*pChannels);
+        config.channel_count = AudioSystem::popCount((*pChannels) &
+                              (AudioSystem::CHANNEL_IN_STEREO|
+                               AudioSystem::CHANNEL_IN_MONO));
+
         config.sample_rate = *pRate;
 
         mBufferSize = mHardware->getInputBufferSize(config.sample_rate,
@@ -3407,10 +3410,18 @@ status_t AudioHardware::AudioStreamInVoip::standby()
             return 0;
         }
 
-        if((temp->dev_id != INVALID_DEVICE && temp->dev_id_tx != INVALID_DEVICE)&& (!isStreamOn(VOICE_CALL))) {
-           enableDevice(temp->dev_id,0);
-           enableDevice(temp->dev_id_tx,0);
-           LOGE("VOIPin: disable voip rx tx");
+        if((temp->dev_id != INVALID_DEVICE && temp->dev_id_tx != INVALID_DEVICE)) {
+           if(!getNodeByStreamType(VOICE_CALL) && !getNodeByStreamType(LPA_DECODE)
+              && !getNodeByStreamType(PCM_PLAY) && !getNodeByStreamType(FM_RADIO)) {
+               if (anc_running == false) {
+                   enableDevice(temp->dev_id, 0);
+                   LOGV("Voipin: disable voip rx");
+               }
+            }
+            if(!getNodeByStreamType(VOICE_CALL) && !getNodeByStreamType(PCM_REC)) {  
+                 enableDevice(temp->dev_id_tx,0);
+                 LOGD("VOIPin: disable voip tx");
+            }
         }
         deleteFromTable(VOIP_CALL);
          if (mFd >= 0) {
