@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -86,16 +86,13 @@ int main (int argc, char **argv)
 
   encoder_context = (struct video_encoder_context *) \
                    calloc (sizeof (struct video_encoder_context),1);
-
-  encoder_context->outputBufferFile = NULL;
-    encoder_context->inputBufferFile = NULL;
-  encoder_context->video_driver_fd = -1;
-
   if (encoder_context == NULL)
   {
     return -1;
   }
-
+  encoder_context->outputBufferFile = NULL;
+  encoder_context->inputBufferFile = NULL;
+  encoder_context->video_driver_fd = -1;
   encoder_context->inputBufferFile = file_ptr;
   encoder_context->input_width = 176;
   encoder_context->input_height = 144;
@@ -109,6 +106,7 @@ int main (int argc, char **argv)
   if (file_ptr == NULL)
   {
     DEBUG_PRINT("\n File can't be created");
+    free (encoder_context);
     return -1;
   }
   encoder_context->outputBufferFile = file_ptr;
@@ -571,11 +569,11 @@ int allocate_buffer ( unsigned int buffer_dir,
 
   for (i=0; i< buffercount; i++)
   {
-    ptemp [i]->fd = open ("/dev/pmem_adsp", O_RDWR | O_SYNC);
+    ptemp [i]->fd = open ("/dev/pmem_adsp",O_RDWR);
 
     if (ptemp [i]->fd < 0)
     {
-      DEBUG_PRINT ("\nallocate_buffer: open pmem failed");
+      DEBUG_PRINT ("\nallocate_buffer: open pmem_adsp failed");
       return -1;
     }
 
@@ -933,18 +931,19 @@ static void* video_thread (void *context)
           DEBUG_PRINT("\n Flush output complete");
           sem_post (&encoder_context->sem_synchronize);
           break;
-         }
+        }
+
+        if (queueitem->cmd == VEN_MSG_STOP)
+        {
+          DEBUG_PRINT("\n Playback has ended thread will exit");
+          return NULL;
+        }
       }
       else
       {
         DEBUG_PRINT("\n Error condition recieved NULL from Queue");
       }
 
-      if (queueitem->cmd == VEN_MSG_STOP)
-      {
-        DEBUG_PRINT("\n Playback has ended thread will exit");
-        return NULL;
-      }
    }
 }
 
