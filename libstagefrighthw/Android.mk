@@ -5,5 +5,9 @@ ifeq ($(TARGET_BOARD_PLATFORM),msm7x30)
 endif
 
 ifeq ($(TARGET_BOARD_PLATFORM),msm8660)
-    include $(SF_HW_ROOT)/msm8x60/Android.mk
+    include $(SF_HW_ROOT)/msm8660/Android.mk
+endif
+
+ifeq ($(TARGET_BOARD_PLATFORM),qsd8k)
+    include $(SF_HW_ROOT)/qsd8k/Android.mk
 endif

@@ -60,7 +60,7 @@ LOCAL_STATIC_LIBRARIES := \
     libmedia_helper \
     libaudiopolicy_legacy
 
-LOCAL_MODULE := audio_policy.$(TARGET_BOARD_PLATFORM)
+LOCAL_MODULE := audio_policy.$(TARGET_BOOTLOADER_BOARD_NAME)
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE_TAGS := optional
 
