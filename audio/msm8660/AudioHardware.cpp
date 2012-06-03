@@ -19,7 +19,6 @@
 #include <math.h>
 
 #define LOG_NDEBUG 0
-#define LOG_NDDEBUG 0
 #define LOG_TAG "AudioHardwareMSM8660"
 #include <utils/Log.h>
 #include <utils/String8.h>
@@ -99,15 +98,22 @@ static const uint32_t SND_DEVICE_HEADPHONE_AND_SPEAKER      = 18;
 static const uint32_t SND_DEVICE_FM_TX                      = 19;
 static const uint32_t SND_DEVICE_FM_TX_AND_SPEAKER          = 20;
 static const uint32_t SND_DEVICE_SPEAKER_TX                 = 21;
-
 static const uint32_t SND_DEVICE_SPEAKER_BACK_MIC           = 26;
 static const uint32_t SND_DEVICE_HANDSET_BACK_MIC           = 27;
 static const uint32_t SND_DEVICE_NO_MIC_HEADSET_BACK_MIC    = 28;
 static const uint32_t SND_DEVICE_HEADSET_AND_SPEAKER_BACK_MIC = 30;
 static const uint32_t SND_DEVICE_I2S_SPEAKER                = 32;
 static const uint32_t SND_DEVICE_BT_EC_OFF                  = 45;
+#ifdef SAMSUNG_AUDIO
+static const uint32_t SND_DEVICE_VOIP_HANDSET               = 50;
+static const uint32_t SND_DEVICE_VOIP_SPEAKER               = 51;
+static const uint32_t SND_DEVICE_VOIP_HEADSET               = 52;
+static const uint32_t SND_DEVICE_CALL_HANDSET               = 60;
+static const uint32_t SND_DEVICE_CALL_SPEAKER               = 61;
+static const uint32_t SND_DEVICE_CALL_HEADSET               = 62;
 static const uint32_t SND_DEVICE_HAC                        = 252;
 static const uint32_t SND_DEVICE_USB_HEADSET                = 253;
+#endif
 
 static const uint32_t DEVICE_HANDSET_RX            = 0;  //handset_rx
 static const uint32_t DEVICE_HANDSET_TX            = 1;  //handset_tx
@@ -129,6 +135,22 @@ static const uint32_t DEVICE_ANC_HEADSET_STEREO_RX = 16; //ANC RX
 static const uint32_t DEVICE_BT_SCO_RX             = 17; //bt_sco_rx
 static const uint32_t DEVICE_BT_SCO_TX             = 18; //bt_sco_tx
 static const uint32_t DEVICE_FMRADIO_STEREO_RX     = 19;
+
+#ifdef SAMSUNG_AUDIO
+// Samsung devices
+static const uint32_t DEVICE_HANDSET_VOIP_RX       = 40; // handset_voip_rx
+static const uint32_t DEVICE_HANDSET_VOIP_TX       = 41; // handset_voip_tx
+static const uint32_t DEVICE_SPEAKER_VOIP_RX       = 42; // speaker_voip_rx
+static const uint32_t DEVICE_SPEAKER_VOIP_TX       = 43; // speaker_voip_tx
+static const uint32_t DEVICE_HEADSET_VOIP_RX       = 44; // headset_voip_rx
+static const uint32_t DEVICE_HEADSET_VOIP_TX       = 45; // headset_voip_tx
+static const uint32_t DEVICE_HANDSET_CALL_RX       = 60; // handset_call_rx
+static const uint32_t DEVICE_HANDSET_CALL_TX       = 61; // handset_call_tx
+static const uint32_t DEVICE_SPEAKER_CALL_RX       = 62; // speaker_call_rx
+static const uint32_t DEVICE_SPEAKER_CALL_TX       = 63; // speaker_call_tx
+static const uint32_t DEVICE_HEADSET_CALL_RX       = 64; // headset_call_rx
+static const uint32_t DEVICE_HEADSET_CALL_TX       = 65; // headset_call_tx
+#endif
 
 static uint32_t FLUENCE_MODE_ENDFIRE   = 0;
 static uint32_t FLUENCE_MODE_BROADSIDE = 1;
@@ -217,7 +239,7 @@ enum FM_STATE {
 FM_STATE fmState = FM_INVALID;
 static uint32_t fmDevice = INVALID_DEVICE;
 
-#define MAX_DEVICE_COUNT 30
+#define MAX_DEVICE_COUNT 200
 #define DEV_ID(X) device_list[X].dev_id
 #define ACDB_ID(X) device_list[X].acdb_id
 #define CAPABILITY(X) device_list[X].capability
@@ -598,7 +620,7 @@ AudioHardware::AudioHardware() :
     mInit(false), mMicMute(true), mBluetoothNrec(true), mBluetoothId(0),
     mHACSetting(false), mBluetoothIdTx(0), mBluetoothIdRx(0),
     mOutput(0), mBluetoothVGS(false),
-    mCurSndDevice(-1),
+    mCurSndDevice(-1), mVoiceVolume(1),
     mTtyMode(TTY_OFF), mFmFd(-1), mNumPcmRec(0),
     mVoipFd(-1), mNumVoipStreams(0), mDirectOutput(0),
     mRecordState(false), mEffectEnabled(false)
@@ -646,6 +668,12 @@ AudioHardware::AudioHardware() :
        LOGE("NO devices registered\n");
        return;
     }
+
+    //End any voice call if it exists. This is to ensure the next request
+    //to voice call after a mediaserver crash or sub system restart
+    //is not ignored by the voice driver.
+    if (msm_end_voice() < 0)
+        LOGE("msm_end_voice() failed");
 
     if(msm_reset_all_device() < 0)
         LOGE("msm_reset_all_device() failed");
@@ -757,6 +785,32 @@ AudioHardware::AudioHardware() :
         }
         else if(strcmp((char*)name[i],"fmradio_stereo_rx") == 0)
             index = DEVICE_FMRADIO_STEREO_RX;
+#ifdef SAMSUNG_AUDIO
+        else if(strcmp((char* )name[i], "handset_voip_rx") == 0)
+            index = DEVICE_HANDSET_VOIP_RX;
+        else if(strcmp((char* )name[i], "handset_voip_tx") == 0)
+            index = DEVICE_HANDSET_VOIP_TX;
+        else if(strcmp((char* )name[i], "speaker_voip_rx") == 0)
+            index = DEVICE_SPEAKER_VOIP_RX;
+        else if(strcmp((char* )name[i], "speaker_voip_tx") == 0)
+            index = DEVICE_SPEAKER_VOIP_TX;
+        else if(strcmp((char* )name[i], "headset_voip_rx") == 0)
+            index = DEVICE_HEADSET_VOIP_RX;
+        else if(strcmp((char* )name[i], "headset_voip_tx") == 0)
+            index = DEVICE_HEADSET_VOIP_TX;
+        else if(strcmp((char* )name[i], "handset_call_rx") == 0)
+            index = DEVICE_HANDSET_CALL_RX;
+        else if(strcmp((char* )name[i], "handset_call_tx") == 0)
+            index = DEVICE_HANDSET_CALL_TX;
+        else if(strcmp((char* )name[i], "speaker_call_rx") == 0)
+            index = DEVICE_SPEAKER_CALL_RX;
+        else if(strcmp((char* )name[i], "speaker_call_tx") == 0)
+            index = DEVICE_SPEAKER_CALL_TX;
+        else if(strcmp((char* )name[i], "headset_call_rx") == 0)
+            index = DEVICE_HEADSET_CALL_RX;
+        else if(strcmp((char* )name[i], "headset_call_tx") == 0)
+            index = DEVICE_HEADSET_CALL_TX;
+#endif
         else
             continue;
         LOGV("index = %d",index);
@@ -1244,7 +1298,10 @@ status_t AudioHardware::setParameters(const String8& keyValuePairs)
            return NO_ERROR;
         }
         LOGI("Changed TTY Mode=%s", value.string());
-        doRouting(NULL);
+        if((mMode == AudioSystem::MODE_IN_CALL) &&
+           (cur_rx == DEVICE_HEADSET_RX) &&
+           (cur_tx == DEVICE_HEADSET_TX))
+           doRouting(NULL);
     }
 
     key = String8(ACTIVE_AP);
@@ -1300,13 +1357,13 @@ String8 AudioHardware::getParameters(const String8& keys)
         if(mBluetoothVGS)
            param.addInt(String8("isVGS"), true);
     }
-
+#ifndef NO_QCOM_MVS
     key = String8(ECHO_SUPRESSION);
     if (param.get(key, value) == NO_ERROR) {
         value = String8("yes");
         param.add(key, value);
     }
-
+#endif
     key = String8(DSP_EFFECT_KEY);
     if (param.get(key, value) == NO_ERROR) {
         value = String8(mCurDspProfile);
@@ -1381,6 +1438,8 @@ status_t AudioHardware::setVoiceVolume(float v)
         LOGW("setVoiceVolume(%f) over 1.0, assuming 1.0\n", v);
         v = 1.0;
     }
+
+    mVoiceVolume = v;
 
     if(isStreamOnAndActive(VOICE_CALL)) {
         session_id = voice_session_id;
@@ -1650,6 +1709,40 @@ static status_t do_route_audio_rpc(uint32_t device, int mode, bool mic_mute)
         new_tx_device = DEVICE_SPEAKER_TX;
         LOGI("In SPEAKER_TX cur_rx = %d\n", cur_rx);
     }
+#ifdef SAMSUNG_AUDIO
+#if 0
+    else if (device == SND_DEVICE_VOIP_HANDSET) {
+        new_rx_device = DEVICE_HANDSET_VOIP_RX;
+        new_tx_device = DEVICE_HANDSET_VOIP_TX;
+        LOGD("In VOIP HANDSET");
+    }
+    else if (device == SND_DEVICE_VOIP_SPEAKER) {
+        new_rx_device = DEVICE_SPEAKER_VOIP_RX;
+        new_tx_device = DEVICE_SPEAKER_VOIP_TX;
+        LOGD("In VOIP SPEAKER");
+    }
+    else if (device == SND_DEVICE_VOIP_HEADSET) {
+        new_rx_device = DEVICE_HEADSET_VOIP_RX;
+        new_tx_device = DEVICE_HEADSET_VOIP_TX;
+        LOGD("In VOIP HEADSET");
+    }
+#endif
+    else if (device == SND_DEVICE_CALL_HANDSET) {
+        new_rx_device = DEVICE_HANDSET_CALL_RX;
+        new_tx_device = DEVICE_HANDSET_CALL_TX;
+        LOGD("In CALL HANDSET");
+    }
+    else if (device == SND_DEVICE_CALL_SPEAKER) {
+        new_rx_device = DEVICE_SPEAKER_CALL_RX;
+        new_tx_device = DEVICE_SPEAKER_CALL_TX;
+        LOGD("In CALL SPEAKER");
+    }
+    else if (device == SND_DEVICE_CALL_HEADSET) {
+        new_rx_device = DEVICE_HEADSET_CALL_RX;
+        new_tx_device = DEVICE_HEADSET_CALL_TX;
+        LOGD("In CALL HEADSET");
+    }
+#endif
 
     if(new_rx_device != INVALID_DEVICE)
         LOGD("new_rx = %d", DEV_ID(new_rx_device));
@@ -1657,7 +1750,6 @@ static status_t do_route_audio_rpc(uint32_t device, int mode, bool mic_mute)
         LOGD("new_tx = %d", DEV_ID(new_tx_device));
 
     if ((mode == AudioSystem::MODE_IN_CALL) && !isStreamOn(VOICE_CALL)) {
-
 #ifndef QCOM_VOIP
         msm_start_voice();
 #endif
@@ -1666,6 +1758,7 @@ static status_t do_route_audio_rpc(uint32_t device, int mode, bool mic_mute)
             // Routing Voice
             if ( (new_rx_device != INVALID_DEVICE) && (new_tx_device != INVALID_DEVICE))
             {
+                initACDB();
                 acdb_loader_send_voice_cal(ACDB_ID(new_rx_device),ACDB_ID(new_tx_device));
                 LOGD("Starting voice on Rx %d and Tx %d device", DEV_ID(new_rx_device), DEV_ID(new_tx_device));
 
@@ -1697,7 +1790,8 @@ static status_t do_route_audio_rpc(uint32_t device, int mode, bool mic_mute)
            msm_start_voice_ext(voice_session_id);
            msm_set_voice_tx_mute_ext(voice_session_mute,voice_session_id);
 #else
-           msm_set_voice_tx_mute(0);
+           if (mic_mute == false)
+               msm_set_voice_tx_mute(0);
 #endif
 
             if(!isDeviceListEmpty())
@@ -1759,12 +1853,12 @@ status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
     }
 #endif
 
-    if (isHTCPhone) {
-        if (device == SND_DEVICE_BT) {
-            if (!mBluetoothNrec)
-                device = SND_DEVICE_BT_EC_OFF;
-        }
+    if (device == SND_DEVICE_BT) {
+        if (!mBluetoothNrec)
+            device = SND_DEVICE_BT_EC_OFF;
+    }
 
+    if (isHTCPhone) {
         if (support_aic3254) {
             aic3254_config(device);
             do_aic3254_control(device);
@@ -1772,6 +1866,12 @@ status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
 
         getACDB(device);
     }
+
+    if (isStreamOnAndActive(VOICE_CALL) && mMicMute == false)
+        msm_set_voice_tx_mute(0);
+
+    if (isInCall())
+        setVoiceVolume(mVoiceVolume);
 
     LOGV("doAudioRouteOrMute() device %x, mMode %d, mMicMute %d", device, mMode, mMicMute);
     return do_route_audio_rpc(device, mMode, mMicMute);
@@ -2234,6 +2334,35 @@ status_t AudioHardware::doRouting(AudioStreamInMSM72xx *input)
             sndDevice = SND_DEVICE_IN_S_SADC_OUT_SPEAKER_PHONE;
         }
     }
+
+#ifdef SAMSUNG_AUDIO
+    if (mMode == AudioSystem::MODE_IN_CALL) {
+        if (sndDevice == SND_DEVICE_HANDSET) {
+            LOGD("Routing audio to call handset\n");
+            sndDevice = SND_DEVICE_CALL_HANDSET;
+        } else if (sndDevice == SND_DEVICE_SPEAKER) {
+            LOGD("Routing audio to call speaker\n");
+            sndDevice = SND_DEVICE_CALL_SPEAKER;
+        } else if (sndDevice == SND_DEVICE_HEADSET) {
+            LOGD("Routing audio to call headset\n");
+            sndDevice = SND_DEVICE_CALL_HEADSET;
+        }
+#if 0
+    } else if (mMode == AudioSystem::MODE_IN_COMMUNICATION) {
+        if (sndDevice == SND_DEVICE_HANDSET) {
+            LOGD("Routing audio to VOIP handset\n");
+            sndDevice = SND_DEVICE_VOIP_HANDSET;
+        } else if (sndDevice == SND_DEVICE_SPEAKER) {
+            LOGD("Routing audio to VOIP speaker\n");
+            sndDevice = SND_DEVICE_VOIP_SPEAKER;
+        } else if (sndDevice == SND_DEVICE_HEADSET) {
+            LOGD("Routing audio to VOIP headset\n");
+            sndDevice = SND_DEVICE_VOIP_HEADSET;
+        }
+#endif
+    }
+#endif
+
 #ifdef FM_RADIO
     if ((outputDevices & AudioSystem::DEVICE_OUT_FM) && (mFmFd == -1)){
         enableFM(sndDevice);
@@ -3076,6 +3205,8 @@ ssize_t AudioHardware::AudioStreamOutDirect::write(const void* buffer, size_t by
             // fill 2 buffers before AUDIO_START
             mStartCount = AUDIO_HW_NUM_OUT_BUF;
             mStandby = false;
+
+            Mutex::Autolock lock(mDeviceSwitchLock);
             //Routing Voip
             if ((cur_rx != INVALID_DEVICE) && (cur_tx != INVALID_DEVICE))
             {
@@ -3110,8 +3241,6 @@ ssize_t AudioHardware::AudioStreamOutDirect::write(const void* buffer, size_t by
             msm_start_voice();
             msm_set_voice_tx_mute(0);
 #endif
-            if(!isDeviceListEmpty())
-                updateDeviceInfo(cur_rx,cur_tx);
             addToTable(0,cur_rx,cur_tx,VOIP_CALL,true);
         }
     }
@@ -3938,6 +4067,8 @@ status_t AudioHardware::AudioStreamInVoip::set(
             }
 
             LOGV("Going to enable RX/TX device for voice stream");
+
+            Mutex::Autolock lock(mDeviceSwitchLock);
             // Routing Voip
            if ( (cur_rx != INVALID_DEVICE) && (cur_tx != INVALID_DEVICE))
            {
@@ -3976,8 +4107,6 @@ status_t AudioHardware::AudioStreamInVoip::set(
            msm_start_voice();
            msm_set_voice_tx_mute(0);
 #endif
-           if(!isDeviceListEmpty())
-                updateDeviceInfo(cur_rx,cur_tx);
            addToTable(0,cur_rx,cur_tx,VOIP_CALL,true);
     }
     mFormat =  *pFormat;

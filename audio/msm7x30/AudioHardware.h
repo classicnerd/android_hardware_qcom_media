@@ -28,7 +28,7 @@
 #include <hardware_legacy/AudioHardwareBase.h>
 
 extern "C" {
-#include <linux/msm_audio_7x30.h>
+#include <linux/msm_audio.h>
 #include <linux/msm_audio_aac.h>
 #ifdef WITH_QCOM_SPEECH
 #include <linux/msm_audio_qcp.h>
@@ -364,6 +364,7 @@ protected:
 
 private:
 
+    status_t    doAudioRouteOrMuteHTC(uint32_t device);
     status_t    doAudioRouteOrMute(uint32_t device);
     status_t    setMicMute_nosync(bool state);
     status_t    checkMicMute();
@@ -522,7 +523,7 @@ private:
             int         mNumBTEndpoints;
             int mCurSndDevice;
             int m7xsnddriverfd;
-            uint32_t    mVoiceVolume;
+            float       mVoiceVolume;
             int         mTtyMode;
             int         mNoiseSuppressionState;
             bool        mDualMicEnabled;

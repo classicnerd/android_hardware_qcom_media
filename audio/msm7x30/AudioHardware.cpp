@@ -18,7 +18,7 @@
 
 #include <math.h>
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 
 #define LOG_TAG "AudioHardwareMSM7X30"
 #include <utils/Log.h>
@@ -91,7 +91,8 @@ static const uint32_t SND_DEVICE_FM_HEADSET = 9;
 static const uint32_t SND_DEVICE_HEADSET_AND_SPEAKER = 10;
 static const uint32_t SND_DEVICE_FM_SPEAKER = 11;
 static const uint32_t SND_DEVICE_FM_HANDSET = 12;
-static const uint32_t SND_DEVICE_FM_TX = 14;
+static const uint32_t SND_DEVICE_FM_TX = 13;
+static const uint32_t SND_DEVICE_FM_TX_AND_SPEAKER = 14;
 static const uint32_t SND_DEVICE_HDMI = 15;
 static const uint32_t SND_DEVICE_HEADPHONE_AND_SPEAKER = 16;
 static const uint32_t SND_DEVICE_IN_S_SADC_OUT_HANDSET = 17;
@@ -520,7 +521,7 @@ AudioHardware::AudioHardware() :
     mInit(false), mMicMute(true), mBluetoothNrec(true), mBluetoothId(0),
     mHACSetting(false), mBluetoothIdTx(0), mBluetoothIdRx(0),
     mOutput(0), mBluetoothVGS(false), mCurSndDevice(SND_DEVICE_CURRENT),
-    mVoiceVolume(VOICE_VOLUME_MAX), mTtyMode(TTY_OFF), mDualMicEnabled(false),
+    mVoiceVolume(1), mTtyMode(TTY_OFF), mDualMicEnabled(false),
     mRecordState(false), mEffectEnabled(false), mFmFd(-1)
 {
         int (*snd_get_num)();
@@ -593,7 +594,9 @@ AudioHardware::AudioHardware() :
                      (strcmp((char*)name[i], "handset_voice_tx") == 0))
                 index = DEVICE_HANDSET_TX;
             else if((strcmp((char* )name[i],"speaker_stereo_rx") == 0) ||
+#ifndef WITH_STEREO_HW_SPEAKER
                     (strcmp((char* )name[i],"speaker_mono_rx") == 0) ||
+#endif
                     (strcmp((char* )name[i],"speaker_rx") == 0) ||
                     (strcmp((char*)name[i], "speaker_stereo_audio_rx") == 0))
                 index = DEVICE_SPEAKER_RX;
@@ -1029,7 +1032,10 @@ status_t AudioHardware::setParameters(const String8& keyValuePairs)
            return NO_ERROR;
         }
         LOGI("Changed TTY Mode=%s", value.string());
-        doRouting(NULL);
+        if((mMode == AudioSystem::MODE_IN_CALL) &&
+          (cur_rx == DEVICE_HEADSET_RX) &&
+          (cur_tx == DEVICE_HEADSET_TX))
+          doRouting(NULL);
     }
 
     key = String8(ACTIVE_AP);
@@ -1186,6 +1192,8 @@ status_t AudioHardware::setVoiceVolume(float v)
         LOGW("setVoiceVolume(%f) over 1.0, assuming 1.0\n", v);
         v = 1.0;
     }
+
+    mVoiceVolume = v;
 
     int vol = lrint(v * 100.0);
     LOGD("setVoiceVolume(%f)\n", v);
@@ -1532,26 +1540,10 @@ static status_t do_route_audio_rpc(uint32_t device,
     return NO_ERROR;
 }
 
-// always call with mutex held
-status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
+status_t AudioHardware::doAudioRouteOrMuteHTC(uint32_t device)
 {
-// the code and not removing it.
-#if 0
-    if (device == (uint32_t)SND_DEVICE_BT || device == (uint32_t)SND_DEVICE_CARKIT) {
-        if (mBluetoothId) {
-            device = mBluetoothId;
-        } else if (!mBluetoothNrec) {
-            device = SND_DEVICE_BT_EC_OFF;
-        }
-    }
-#endif
-
     uint32_t rx_acdb_id = 0;
     uint32_t tx_acdb_id = 0;
-
-    if (!isHTCPhone)
-        return do_route_audio_rpc(device, mMode != AudioSystem::MODE_IN_CALL,
-                                  mMicMute, rx_acdb_id, tx_acdb_id);
 
     if (device == SND_DEVICE_BT) {
         if (!mBluetoothNrec)
@@ -1584,14 +1576,13 @@ status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
             tx_acdb_id = mBTEndpoints[1].tx;
             LOGD("Update ACDB ID to default carkit setting");
         }
-    } else if (mMode == AudioSystem::MODE_IN_CALL
-               && hac_enable && mHACSetting &&
+    } else if (isInCall() && hac_enable && mHACSetting &&
                device == SND_DEVICE_HANDSET) {
         LOGD("Update acdb id to hac profile.");
         rx_acdb_id = ACDB_ID_HAC_HANDSET_SPKR;
         tx_acdb_id = ACDB_ID_HAC_HANDSET_MIC;
     } else {
-        if (mMode == AudioSystem::MODE_IN_CALL) {
+        if (isInCall()) {
             rx_acdb_id = getACDB(MOD_RX, device);
             tx_acdb_id = getACDB(MOD_TX, device);
         } else {
@@ -1603,12 +1594,43 @@ status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
         }
     }
 
+    LOGV("doAudioRouteOrMuteHTC() rx acdb %d, tx acdb %d", rx_acdb_id, tx_acdb_id);
+    LOGV("doAudioRouteOrMuteHTC() device %x, mMode %d, mMicMute %d",
+            device, mMode, mMicMute);
+    return do_route_audio_rpc(device, !isInCall(), mMicMute, rx_acdb_id, tx_acdb_id);
+}
 
-    LOGV("doAudioRouteOrMute: rx acdb %d, tx acdb %d", rx_acdb_id, tx_acdb_id);
-    LOGV("doAudioRouteOrMute() device %x, mMode %d, mMicMute %d", device, mMode, mMicMute);
-    return do_route_audio_rpc(device,
-                              mMode != AudioSystem::MODE_IN_CALL, mMicMute,
-                              rx_acdb_id, tx_acdb_id);
+// always call with mutex held
+status_t AudioHardware::doAudioRouteOrMute(uint32_t device)
+{
+// BT acoustics is not supported. This might be used by OEMs. Hence commenting
+// the code and not removing it.
+#if 0
+    if (device == (uint32_t)SND_DEVICE_BT || device == (uint32_t)SND_DEVICE_CARKIT) {
+        if (mBluetoothId) {
+            device = mBluetoothId;
+        } else if (!mBluetoothNrec) {
+            device = SND_DEVICE_BT_EC_OFF;
+        }
+    }
+#endif
+
+    status_t ret = NO_ERROR;
+
+    if (!isHTCPhone) {
+        LOGV("doAudioRouteOrMute() device %d, mMode %d, mMicMute %d",
+                device, mMode, mMicMute);
+        ret = do_route_audio_rpc(device, !isInCall(), mMicMute, 0, 0);
+    } else
+        ret = doAudioRouteOrMuteHTC(device);
+
+    if (isStreamOnAndActive(VOICE_CALL) && mMicMute == false)
+        msm_set_voice_tx_mute(0);
+
+    if (isInCall())
+        setVoiceVolume(mVoiceVolume);
+
+    return ret;
 }
 
 status_t AudioHardware::get_mMode(void) {
@@ -1637,20 +1659,21 @@ uint32_t AudioHardware::getACDB(int mode, uint32_t device) {
 
     uint32_t acdb_id = 0;
     int batt_temp = 0;
+    int vol = lrint(mVoiceVolume * 100.0);
 
     if (mMode == AudioSystem::MODE_IN_CALL &&
         device <= SND_DEVICE_NO_MIC_HEADSET) {
         if (mode == MOD_RX) {
             switch (device) {
                 case SND_DEVICE_HANDSET:
-                    acdb_id = mVoiceVolume / 20 + 201;
+                    acdb_id = vol / 20 + 201;
                     break;
                 case SND_DEVICE_HEADSET:
                 case SND_DEVICE_NO_MIC_HEADSET:
-                    acdb_id = mVoiceVolume / 20 + 401;
+                    acdb_id = vol / 20 + 401;
                     break;
                 case SND_DEVICE_SPEAKER:
-                    acdb_id = mVoiceVolume / 20 + 601;
+                    acdb_id = vol / 20 + 601;
                     break;
                 default:
                     break;
@@ -1658,14 +1681,14 @@ uint32_t AudioHardware::getACDB(int mode, uint32_t device) {
         } else if (mode == MOD_TX) {
             switch (device) {
                 case SND_DEVICE_HANDSET:
-                    acdb_id = mVoiceVolume / 20 + 101;
+                    acdb_id = vol / 20 + 101;
                     break;
                 case SND_DEVICE_HEADSET:
                 case SND_DEVICE_NO_MIC_HEADSET:
-                    acdb_id = mVoiceVolume / 20 + 301;
+                    acdb_id = vol / 20 + 301;
                     break;
                 case SND_DEVICE_SPEAKER:
-                    acdb_id = mVoiceVolume / 20 + 501;
+                    acdb_id = vol / 20 + 501;
                     break;
                 default:
                     break;
